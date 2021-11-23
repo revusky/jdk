@@ -39,16 +39,10 @@ import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.Serial;
 import java.text.BreakIterator;
+import java.util.Locale;
+import java.util.ResourceBundle;
 
-import javax.accessibility.Accessible;
-import javax.accessibility.AccessibleContext;
-import javax.accessibility.AccessibleExtendedComponent;
-import javax.accessibility.AccessibleIcon;
-import javax.accessibility.AccessibleKeyBinding;
-import javax.accessibility.AccessibleRelation;
-import javax.accessibility.AccessibleRelationSet;
-import javax.accessibility.AccessibleRole;
-import javax.accessibility.AccessibleText;
+import javax.accessibility.*;
 import javax.swing.plaf.LabelUI;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
@@ -1085,6 +1079,15 @@ public class JLabel extends JComponent implements SwingConstants, Accessible
             }
             if (name == null) {
                 name = super.getAccessibleName();
+            }
+
+
+            // If an icon is set but no text is set,
+            // the screen reader will say "image".
+            // cc jdk-8277497
+            if (((name == null) || name.isEmpty()) &&
+                    (JLabel.this.getIcon() != null)) {
+                name = ResourceBundle.getBundle("com.sun.accessibility.internal.resources.accessibility", Locale.getDefault()).getString("image");
             }
             return name;
         }
