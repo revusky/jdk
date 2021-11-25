@@ -1080,14 +1080,20 @@ public class JLabel extends JComponent implements SwingConstants, Accessible
             if (name == null) {
                 name = super.getAccessibleName();
             }
-
-
             // If an icon is set but no text is set,
             // the screen reader will say "image".
             // cc jdk-8277497
             if (((name == null) || name.isEmpty()) &&
                     (JLabel.this.getIcon() != null)) {
-                name = ResourceBundle.getBundle("com.sun.accessibility.internal.resources.accessibility", Locale.getDefault()).getString("image");
+                if (JLabel.this.getIcon() instanceof Accessible) {
+                    AccessibleContext ac = ((Accessible) JLabel.this.getIcon()).getAccessibleContext();
+                    if (ac != null) {
+                        name = ac.getAccessibleName();
+                    }
+                }
+                if ((name == null) || name.isEmpty()) {
+                    name = ResourceBundle.getBundle("com.sun.accessibility.internal.resources.accessibility", Locale.getDefault()).getString("image");
+                }
             }
             return name;
         }
