@@ -33,6 +33,24 @@ INJECT AssertStatement :
     }
 }
 
+INJECT BreakStatement :
+   implements com.sun.source.tree.BreakTree
+{
+    public Identifier getLabel() {
+        Node n = getChild(1);
+        return n instanceof Identifier ? (Identifier) n : null;
+    }
+}
+
+INJECT ContinueStatement :
+   implements com.sun.source.tree.ContinueTree
+{
+    public Identifier getLabel() {
+        Node n = getChild(1);
+        return n instanceof Identifier ? (Identifier) n : null;
+    }
+}
+
 INJECT CodeBlock :
    implements com.sun.source.tree.BlockTree
 {
@@ -40,11 +58,37 @@ INJECT CodeBlock :
     
     public java.util.List<Statement> getStatements() {return childrenOfType(Statement.class);}
 }
+/*
+INJECT CatchBlock : 
+    implements com.sun.source.tree.CatchTree
+{
+    com.sun.source.tree.VariableTree getVariable() {return null;} // TODO
+}*/
+
+INJECT DoStatement :
+   implements com.sun.source.tree.DoWhileLoopTree
+{
+    public Expression getCondition() {return (Expression) getChild(2);}
+    public Statement getStatement() {return (Statement) getChild(4);}
+}
 
 INJECT Parentheses :
    implements com.sun.source.tree.ParenthesizedTree
 {
     public Expression getExpression() {return getNestedExpression();}
+}
+
+INJECT ReturnStatement :
+   implements com.sun.source.tree.ReturnTree
+{
+    public Expression getExpression() {return (Expression) getChild(1);}
+}
+
+INJECT WhileStatement :
+   implements com.sun.source.tree.WhileLoopTree
+{
+    public Expression getCondition() {return (Expression) getChild(2);}
+    public Statement getStatement() {return (Statement) getChild(4);}
 }
 
 INJECT YieldStatement :
@@ -73,7 +117,6 @@ INJECT AssignmentExpression :
 }
 
 INJECT ArrayAccess :
-//    import com.sun.source.tree.*;
     implements com.sun.source.tree.ArrayAccessTree;
 {
     public Expression getExpression() {
@@ -82,6 +125,30 @@ INJECT ArrayAccess :
 
     public Expression getIndex() {
         return (Expression) getChild(2);
+    }
+}
+
+INJECT Identifier :
+  implements javax.lang.model.element.Name, com.sun.source.tree.IdentifierTree
+{
+    public boolean contentEquals(CharSequence cs) {
+        return getImage().contentEquals(cs);
+    }
+
+    public CharSequence subSequence(int start, int end) {
+        return getImage().subSequence(start, end);
+    }
+
+    public char charAt(int offset) {
+        return getImage().charAt(offset);
+    }
+    
+    public int length() {
+        return getEndOffset() - getBeginOffset();
+    }
+
+    public javax.lang.model.element.Name getName() {
+        return this;
     }
 }
 
@@ -135,7 +202,5 @@ AdditiveExpression :
 MultiplicativeExpression :
    UnaryExpression (("*"|"/"|"*") UnaryExpression #MultiplicativeExpression(3))*
 ;
-
-  
 
     
