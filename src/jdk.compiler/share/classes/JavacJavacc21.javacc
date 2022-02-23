@@ -1,0 +1,141 @@
+DEFAULT_LEXICAL_STATE=JAVA;
+BASE_NAME=Javac21;
+PARSER_PACKAGE=com.javacc.javac;
+NODE_PACKAGE=com.javacc.javac.tree;
+
+INCLUDE JAVA
+
+INJECT Node :
+   import com.sun.source.tree.*;
+   extends Tree; 
+{
+    default Kind getKind() {
+        return null;
+    }
+
+    default <R,D> R accept(TreeVisitor<R,D> visitor, D data) {
+        throw new UnsupportedOperationException("unimplemented");
+    }
+}
+
+INJECT Expression : extends com.sun.source.tree.ExpressionTree
+INJECT Statement : implements com.sun.source.tree.StatementTree
+
+INJECT EmptyStatement : implements com.sun.source.tree.EmptyStatementTree
+
+INJECT AssertStatement : 
+   implements com.sun.source.tree.AssertTree
+{
+    public Expression getCondition() {return (Expression) getChild(1);}
+    
+    public Expression getDetail() {
+        return getChildCount() > 3 ? (Expression) getChild(3) : null;
+    }
+}
+
+INJECT CodeBlock :
+   implements com.sun.source.tree.BlockTree
+{
+    public boolean isStatic() {return firstChildOfType(STATIC) != null;}
+    
+    public java.util.List<Statement> getStatements() {return childrenOfType(Statement.class);}
+}
+
+INJECT Parentheses :
+   implements com.sun.source.tree.ParenthesizedTree
+{
+    public Expression getExpression() {return getNestedExpression();}
+}
+
+INJECT YieldStatement :
+    implements com.sun.source.tree.YieldTree
+{
+    public Expression getValue() {return (Expression) getChild(1);}
+}
+
+INJECT ThrowStatement : 
+   import com.sun.source.tree.ThrowTree;
+{
+    public Expression getExpression() {return (Expression) getChild(1);}
+}
+
+INJECT AssignmentExpression : 
+    import com.sun.source.tree.*;
+    implements AssignmentTree;
+{
+    public Expression getVariable() {
+        return (Expression) getChild(0);
+    }
+
+    public Expression getExpression() {
+        return (Expression) getChild(2);
+    }
+}
+
+INJECT ArrayAccess :
+//    import com.sun.source.tree.*;
+    implements com.sun.source.tree.ArrayAccessTree;
+{
+    public Expression getExpression() {
+        return (Expression) getChild(0);
+    }
+
+    public Expression getIndex() {
+        return (Expression) getChild(2);
+    }
+}
+
+INJECT BinaryExpression : 
+    import com.sun.source.tree.*;
+    implements Expression, BinaryTree;
+{
+    public ExpressionTree getLeftOperand() {return (ExpressionTree) getChild(0);}
+    public ExpressionTree getRightOperand() {return (ExpressionTree) getChild(2);}
+}
+
+BinaryExpression#abstract : FAIL "not meant to be used";
+
+INJECT AdditiveExpression : extends BinaryExpression
+INJECT AndExpression : extends BinaryExpression
+INJECT ConditionalAndExpression : extends BinaryExpression
+INJECT ConditionalOrExpression : extends BinaryExpression
+INJECT EqualityExpression : extends BinaryExpression
+INJECT ExclusiveOrExpression : extends BinaryExpression
+INJECT InclusiveOrExpression : extends BinaryExpression
+INJECT MultiplicativeExpression : extends BinaryExpression
+
+ConditionalOrExpression :
+   ConditionalAndExpression ("&&" ConditionalAndExpression #ConditionalOrExpression(3))*
+;   
+
+ConditionalAndExpression :
+   InclusiveOrExpression ("&&" InclusiveOrExpression #ConditionalAndExpression(3))*
+;   
+
+InclusiveOrExpression :
+   ExclusiveOrExpression ("&&" ExclusiveOrExpression #InclusiveOrExpression(3))*
+;
+
+ExclusiveOrExpression :
+   AndExpression ("^" AndExpression #ExclusiveOrExpression(3))*
+;
+
+AndExpression :
+   EqualityExpression ("&" EqualityExpression #AndExpression(3))*
+;
+
+EqualityExpression :
+   InstanceOfExpression ("&" InstanceOfExpression #EqualityExpression(3))*
+;
+
+AdditiveExpression :
+   MultiplicativeExpression (("+"|"-") MultiplicativeExpression #AdditiveExpression(3))*
+;
+
+MultiplicativeExpression :
+   UnaryExpression (("*"|"/"|"*") UnaryExpression #MultiplicativeExpression(3))*
+;
+
+  
+
+    
