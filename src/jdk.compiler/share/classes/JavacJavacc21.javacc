@@ -65,9 +65,25 @@ INJECT CodeBlock :
 }
 
 INJECT CatchBlock : 
+    import com.sun.source.tree.VariableTree;
     implements com.sun.source.tree.CatchTree
 {
-    public com.sun.source.tree.VariableTree getParameter() {return null;} // TODO
+    public class VariableTreeNode extends BaseNode implements VariableTree {
+            // Not fully implemented currently, just trying to get it to compile!
+            public Modifiers getModifiers() {return null;}
+
+            public Expression getNameExpression() {return null;}
+
+            public Identifier getName() {return firstChildOfType(Identifier.class);}
+
+            public Node getType() {return CatchBlock.this.firstChildOfType(ObjectType.class);}
+            
+            public Expression getInitializer() {return null;}
+    }
+
+    public VariableTree getParameter() { 
+        return new VariableTreeNode();
+    }
 }
 
 INJECT DoStatement :
@@ -75,6 +91,23 @@ INJECT DoStatement :
 {
     public Expression getCondition() {return (Expression) getChild(2);}
     public Statement getStatement() {return (Statement) getChild(4);}
+}
+
+INJECT IfStatement :
+    implements com.sun.source.tree.IfTree
+{
+    public Expression getCondition() {
+        return (Expression) getChild(2);
+    }
+
+    public Statement getThenStatement() {
+        return (Statement) getChild(4);
+    }
+
+    public Statement getElseStatement() {
+        return getChildCount() < 7 ? null : (Statement) getChild(getChildCount()-1);
+    }
+     
 }
 
 INJECT BasicForStatement : 
@@ -321,11 +354,25 @@ INJECT Identifier :
 }
 
 INJECT BinaryExpression : 
-    import com.sun.source.tree.*;
-    implements Expression, BinaryTree;
+    implements Expression, com.sun.source.tree.BinaryTree;
 {
-    public ExpressionTree getLeftOperand() {return (ExpressionTree) getChild(0);}
-    public ExpressionTree getRightOperand() {return (ExpressionTree) getChild(2);}
+    public Expression getLeftOperand() {return (Expression) getChild(0);}
+    public Expression getRightOperand() {return (Expression) getChild(2);}
+}
+
+INJECT InstanceOfExpression :
+    import com.sun.source.tree.PatternTree;
+    implements com.sun.source.tree.InstanceOfTree
+{
+    public Expression getExpression() {
+        return (Expression) getChild(0);
+    }
+
+    public Node getType() {
+        return getChild(getChildCount()-1);
+    }
+
+    public PatternTree getPattern() {return null;} // unimplemented for now
 }
 
 BinaryExpression#abstract : FAIL "not meant to be used";
