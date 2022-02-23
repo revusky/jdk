@@ -7,6 +7,7 @@ INCLUDE JAVA
 
 INJECT Node :
    import com.sun.source.tree.*;
+   import PARSER_PACKAGE.CONSTANTS_CLASS.TokenType;
    extends Tree; 
 {
     default Kind getKind() {
@@ -15,6 +16,10 @@ INJECT Node :
 
     default <R,D> R accept(TreeVisitor<R,D> visitor, D data) {
         throw new UnsupportedOperationException("unimplemented");
+    }
+
+    default TokenType getTokenType() {
+        return this instanceof Token ? ((Token) this).getType() : null;
     }
 }
 
@@ -58,18 +63,174 @@ INJECT CodeBlock :
     
     public java.util.List<Statement> getStatements() {return childrenOfType(Statement.class);}
 }
-/*
+
 INJECT CatchBlock : 
     implements com.sun.source.tree.CatchTree
 {
-    com.sun.source.tree.VariableTree getVariable() {return null;} // TODO
-}*/
+    public com.sun.source.tree.VariableTree getParameter() {return null;} // TODO
+}
 
 INJECT DoStatement :
    implements com.sun.source.tree.DoWhileLoopTree
 {
     public Expression getCondition() {return (Expression) getChild(2);}
     public Statement getStatement() {return (Statement) getChild(4);}
+}
+
+INJECT BasicForStatement : 
+    import java.util.*;
+    implements com.sun.source.tree.ForLoopTree
+{
+    public List<Statement> getInitializer() {
+        List<Statement> result = new ArrayList<>();
+        for (Node child : children()) {
+            if (child.getTokenType() == SEMICOLON) break;
+            if (child instanceof Statement) result.add((Statement)child);
+        }
+        return result;
+    }
+
+    public Expression getCondition() {
+        Node firstSemicolon = firstChildOfType(SEMICOLON);
+        Node justAfter = getChild(indexOf(firstSemicolon)+1);
+        return justAfter instanceof Expression ? (Expression) justAfter : null;
+    }
+
+    public List<StatementExpression> getUpdate() {
+        List<StatementExpression> result = new ArrayList<>();
+        for (int i = getChildCount()-1; i>0; i--) {
+            Node child = getChild(i);
+            if (child.getTokenType() == SEMICOLON) break;
+            if (child instanceof StatementExpression) result.add((StatementExpression)child);
+        }
+        Collections.reverse(result);
+        return result;
+    }
+
+    public Statement getStatement() {
+        return (Statement) getChild(getChildCount()-1);
+    }
+}
+
+INJECT TryStatement : 
+    import java.util.*;
+    implements com.sun.source.tree.TryTree
+{
+    public CodeBlock getBlock() {return firstChildOfType(CodeBlock.class);}
+
+    public List<CatchBlock> getCatches() {
+        return childrenOfType(CatchBlock.class);
+    }
+
+    public CodeBlock getFinallyBlock() {
+        FinallyBlock fb = firstChildOfType(FinallyBlock.class);
+        if (fb == null) return null;
+        return fb.firstChildOfType(CodeBlock.class);
+    }
+
+    public List<Node> getResources() {
+        List<Node> result = new ArrayList<>();
+        for (int i=0; i<getChildCount();i++) {
+            Node child = getChild(i);
+            if (child instanceof Expression || child instanceof LocalVariableDeclaration) {
+                result.add(child);
+            }
+        }
+        return result;
+    }
+}
+
+INJECT VariableDeclarator : 
+   import javax.lang.model.element.Modifier;
+   import PARSER_PACKAGE.CONSTANTS_CLASS.TokenType;
+   implements com.sun.source.tree.VariableTree
+{
+    public Modifiers getModifiers() {
+        Modifiers result = new Modifiers();
+        Node declaration = getParent();
+        for (int i=0; i<getChildCount();i++) {
+            Node child = getChild(i);
+            if (child instanceof Token) {
+                Modifier m = Modifiers.getModifierEnum(((Token)child).getType());
+                if (m != null) result.addChild(child);
+            }
+        }
+        for (Annotation ann : declaration.childrenOfType(Annotation.class)) result.addChild(ann);
+        return result;
+    }
+
+    public Identifier getName() {return firstChildOfType(Identifier.class);}
+
+    public Expression getNameExpression() {return null;} // REVISIT
+
+    public Node getType() {return getParent().firstChildOfType(Type.class);}
+
+    public Expression getInitializer() {
+        if (getChildCount() == 1) return null;
+        Node secondLast = getChild(getChildCount()-2);
+        if (secondLast.getTokenType() != TokenType.EQ) return null;
+        return (Expression) getChild(getChildCount()-1);
+    }
+}
+
+INJECT Modifiers : 
+   import java.util.*;
+   import PARSER_PACKAGE.CONSTANTS_CLASS.TokenType;
+   import javax.lang.model.element.Modifier;
+   implements com.sun.source.tree.ModifiersTree
+{
+    public List<Annotation> getAnnotations() {return childrenOfType(Annotation.class);}
+
+    public Set<Modifier> getFlags() {
+        EnumSet<Modifier> result = EnumSet.noneOf(Modifier.class);
+        for (int i=0; i<getChildCount(); i++) {
+            Node child = getChild(i);
+            if (!(child instanceof Token)) continue;
+            result.add(getModifierEnum(child.getTokenType()));
+        }
+        return result;
+    }
+
+    static public Modifier getModifierEnum(TokenType type) {
+        if (type == null) return null;
+        switch(type) {
+            case PUBLIC : return Modifier.PUBLIC;
+            case PROTECTED : return Modifier.PROTECTED;
+            case PRIVATE : return Modifier.PRIVATE;
+            case ABSTRACT : return Modifier.ABSTRACT;
+            case _DEFAULT : return Modifier.DEFAULT;
+            case STATIC : return Modifier.STATIC;
+            case SEALED : return Modifier.SEALED;
+            case NON_SEALED : return Modifier.NON_SEALED;
+            case FINAL : return Modifier.FINAL;
+            case TRANSIENT : return Modifier.TRANSIENT;
+            case VOLATILE : return Modifier.VOLATILE;
+            case SYNCHRONIZED : return Modifier.SYNCHRONIZED;
+            case STRICTFP : return Modifier.STRICTFP;
+            case NATIVE : return Modifier.NATIVE;
+        }
+        return null;
+    }
+}
+
+INJECT Annotation : 
+//    import com.sun.tools.javac.tree.JCTree.Tag;
+    extends com.sun.source.tree.AnnotationTree
+{
+    default public java.util.List<Expression> getArguments() {
+        return descendantsOfType(Expression.class); //Not correct surely, need to REVISIT
+    }
+
+    default public Node getAnnotationType() {
+//        return Tag.ANNOTATION;
+        return null; //REVISIT
+    }
+}
+
+INJECT StatementExpression : 
+   implements com.sun.source.tree.ExpressionStatementTree 
+{
+    public Expression getExpression() {return this;}
 }
 
 INJECT Parentheses :
@@ -82,6 +243,13 @@ INJECT ReturnStatement :
    implements com.sun.source.tree.ReturnTree
 {
     public Expression getExpression() {return (Expression) getChild(1);}
+}
+
+INJECT SynchronizedStatement : 
+   implements com.sun.source.tree.SynchronizedTree
+{
+    public Expression getExpression() {return firstChildOfType(Expression.class);}
+    public CodeBlock getBlock() {return (CodeBlock) getChild(getChildCount()-1);}
 }
 
 INJECT WhileStatement :
