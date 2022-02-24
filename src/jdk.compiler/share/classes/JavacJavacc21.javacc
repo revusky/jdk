@@ -246,6 +246,12 @@ INJECT Modifiers :
     }
 }
 
+INJECT PackageDeclaration :
+   implements com.sun.source.tree.PackageTree
+{
+    public java.util.List<Annotation> getAnnotations() {return childrenOfType(Annotation.class);}
+}   
+
 INJECT Annotation : 
 //    import com.sun.tools.javac.tree.JCTree.Tag;
     extends com.sun.source.tree.AnnotationTree
@@ -418,4 +424,97 @@ MultiplicativeExpression :
    UnaryExpression (("*"|"/"|"*") UnaryExpression #MultiplicativeExpression(3))*
 ;
 
+INJECT PrimitiveType : 
+   import javax.lang.model.type.TypeKind;
+   implements com.sun.source.tree.PrimitiveTypeTree
+{
+    public TypeKind getPrimitiveTypeKind() {
+       switch (toString()) {
+           case "int" : return TypeKind.INT;
+           case "byte" : return TypeKind.BYTE;
+           case "char" : return TypeKind.CHAR;
+           case "float" : return TypeKind.FLOAT;
+           case "double" : return TypeKind.DOUBLE;
+           case "void" : return TypeKind.VOID;
+           case "null" : return TypeKind.NULL;
+           case "boolean" : return TypeKind.BOOLEAN;
+           case "short" : return TypeKind.SHORT;
+       }
+       return null;
+    }
+}
+
+INJECT ClassicCaseStatement :
+   import java.util.List;
+   implements com.sun.source.tree.CaseTree
+{
+   public CaseKind getCaseKind() { return CaseKind.STATEMENT; }
+   public Expression getExpression() {return getChild(0).firstChildOfType(Expression.class);}
+   public List<Expression> getExpressions() {return getChild(0).childrenOfType(Expression.class);}
+   public List<Statement> getStatements() {return childrenOfType(Statement.class);}
+   public List<ClassicSwitchLabel> getLabels() {return childrenOfType(ClassicSwitchLabel.class);}
+}
+
+INJECT ClassicSwitchLabel : implements com.sun.source.tree.CaseLabelTree
+INJECT NewSwitchLabel : implements com.sun.source.tree.CaseLabelTree
+
+INJECT ClassicSwitchStatement :
+   import com.sun.source.tree.CaseTree;
+   implements com.sun.source.tree.SwitchTree
+{
+    public Expression getExpression() {return firstChildOfType(Expression.class);}
+    public java.util.List<? extends CaseTree> getCases() {return childrenOfType(ClassicCaseStatement.class);}
+}
+
+INJECT NewSwitchStatement :
+    import com.sun.source.tree.CaseTree;
+    implements com.sun.source.tree.SwitchTree
+{
+    public Expression getExpression() {return firstChildOfType(Expression.class);}
+    public java.util.List<? extends CaseTree> getCases() {return childrenOfType(NewCaseStatement.class);}
+} 
+
+INJECT NewCaseStatement :
+   import java.util.List;
+   implements com.sun.source.tree.CaseTree
+{
+   public CaseKind getCaseKind() { return CaseKind.RULE; }
+   public Expression getExpression() {return getChild(0).firstChildOfType(Expression.class);}
+   public List<Expression> getExpressions() {return getChild(0).childrenOfType(Expression.class);}
+   public List<Statement> getStatements() {return childrenOfType(Statement.class);}
+   public List<NewSwitchLabel> getLabels() {return childrenOfType(NewSwitchLabel.class);}
+} 
+
+
+INJECT Name : 
+   implements javax.lang.model.element.Name 
+{
+    public boolean contentEquals(CharSequence cs) {
+        return toString().contentEquals(cs);
+    }
+
+    public CharSequence subSequence(int start, int end) {
+        return toString().subSequence(start, end);
+    }
+
+    public char charAt(int offset) {
+        return toString().charAt(offset);
+    }
     
+    public int length() {
+        return getEndOffset() - getBeginOffset();
+    }
+
+    public javax.lang.model.element.Name getName() {
+        return this;
+    }
+}
+
+INJECT TypeParameter :
+   import java.util.List;
+   implements com.sun.source.tree.TypeParameterTree
+{
+    public List<Annotation> getAnnotations() {return childrenOfType(Annotation.class);}
+    public Identifier getName() {return firstChildOfType(Identifier.class);}
+    public List<? extends Node> getBounds() {return childrenOfType(ObjectType.class);}
+}   
