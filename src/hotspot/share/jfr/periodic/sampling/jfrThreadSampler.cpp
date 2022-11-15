@@ -37,11 +37,14 @@
 #include "logging/log.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/frame.inline.hpp"
+#include "runtime/globals.hpp"
 #include "runtime/javaThread.inline.hpp"
 #include "runtime/os.hpp"
 #include "runtime/semaphore.hpp"
+#include "runtime/suspendedThreadTask.hpp"
 #include "runtime/threadCrashProtection.hpp"
 #include "runtime/threadSMR.hpp"
+#include "utilities/systemMemoryBarrier.hpp"
 
 enum JfrSampleType {
   NO_SAMPLE = 0,
@@ -116,12 +119,12 @@ class JfrThreadSampleClosure {
   uint _added_native;
 };
 
-class OSThreadSampler : public os::SuspendedThreadTask {
+class OSThreadSampler : public SuspendedThreadTask {
  public:
   OSThreadSampler(JavaThread* thread,
                   JfrThreadSampleClosure& closure,
                   JfrStackFrame *frames,
-                  u4 max_frames) : os::SuspendedThreadTask((Thread*)thread),
+                  u4 max_frames) : SuspendedThreadTask((Thread*)thread),
     _success(false),
     _thread_oop(thread->threadObj()),
     _stacktrace(frames, max_frames),
@@ -129,8 +132,8 @@ class OSThreadSampler : public os::SuspendedThreadTask {
     _suspend_time() {}
 
   void take_sample();
-  void do_task(const os::SuspendedThreadTaskContext& context);
-  void protected_task(const os::SuspendedThreadTaskContext& context);
+  void do_task(const SuspendedThreadTaskContext& context);
+  void protected_task(const SuspendedThreadTaskContext& context);
   bool success() const { return _success; }
   const JfrStackTrace& stacktrace() const { return _stacktrace; }
 
@@ -144,7 +147,7 @@ class OSThreadSampler : public os::SuspendedThreadTask {
 
 class OSThreadSamplerCallback : public CrashProtectionCallback {
  public:
-  OSThreadSamplerCallback(OSThreadSampler& sampler, const os::SuspendedThreadTaskContext &context) :
+  OSThreadSamplerCallback(OSThreadSampler& sampler, const SuspendedThreadTaskContext &context) :
     _sampler(sampler), _context(context) {
   }
   virtual void call() {
@@ -152,10 +155,10 @@ class OSThreadSamplerCallback : public CrashProtectionCallback {
   }
  private:
   OSThreadSampler& _sampler;
-  const os::SuspendedThreadTaskContext& _context;
+  const SuspendedThreadTaskContext& _context;
 };
 
-void OSThreadSampler::do_task(const os::SuspendedThreadTaskContext& context) {
+void OSThreadSampler::do_task(const SuspendedThreadTaskContext& context) {
 #ifndef ASSERT
   guarantee(JfrOptionSet::sample_protection(), "Sample Protection should be on in product builds");
 #endif
@@ -177,7 +180,7 @@ void OSThreadSampler::do_task(const os::SuspendedThreadTaskContext& context) {
 * From this method and down the call tree we attempt to protect against crashes
 * using a signal handler / __try block. Don't take locks, rely on destructors or
 * leave memory (in case of signal / exception) in an inconsistent state. */
-void OSThreadSampler::protected_task(const os::SuspendedThreadTaskContext& context) {
+void OSThreadSampler::protected_task(const SuspendedThreadTaskContext& context) {
   JavaThread* const jt = JavaThread::cast(context.thread());
   // Skip sample if we signaled a thread that moved to other state
   if (!thread_state_in_java(jt)) {
@@ -296,14 +299,18 @@ static const uint MAX_NR_OF_NATIVE_SAMPLES = 1;
 void JfrThreadSampleClosure::commit_events(JfrSampleType type) {
   if (JAVA_SAMPLE == type) {
     assert(_added_java > 0 && _added_java <= MAX_NR_OF_JAVA_SAMPLES, "invariant");
-    for (uint i = 0; i < _added_java; ++i) {
-      _events[i].commit();
+    if (EventExecutionSample::is_enabled()) {
+      for (uint i = 0; i < _added_java; ++i) {
+        _events[i].commit();
+      }
     }
   } else {
     assert(NATIVE_SAMPLE == type, "invariant");
     assert(_added_native > 0 && _added_native <= MAX_NR_OF_NATIVE_SAMPLES, "invariant");
-    for (uint i = 0; i < _added_native; ++i) {
-      _events_native[i].commit();
+    if (EventNativeMethodSample::is_enabled()) {
+      for (uint i = 0; i < _added_native; ++i) {
+        _events_native[i].commit();
+      }
     }
   }
 }
@@ -327,7 +334,6 @@ class JfrThreadSampler : public NonJavaThread {
   int64_t _java_period_millis;
   int64_t _native_period_millis;
   const size_t _min_size; // for enqueue buffer monitoring
-  const size_t _renew_size;
   int _cur_index;
   const u4 _max_frames;
   volatile bool _disenrolled;
@@ -382,6 +388,9 @@ bool JfrThreadSampleClosure::do_sample_thread(JavaThread* thread, JfrStackFrame*
 
   bool ret = false;
   thread->set_trace_flag();  // Provides StoreLoad, needed to keep read of thread state from floating up.
+  if (UseSystemMemoryBarrier) {
+    SystemMemoryBarrier::emit();
+  }
   if (JAVA_SAMPLE == type) {
     if (thread_state_in_java(thread)) {
       ret = sample_thread_in_java(thread, frames, max_frames);
@@ -404,8 +413,7 @@ JfrThreadSampler::JfrThreadSampler(int64_t java_period_millis, int64_t native_pe
   _last_thread_native(NULL),
   _java_period_millis(java_period_millis),
   _native_period_millis(native_period_millis),
-  _min_size(JfrOptionSet::stackdepth() * sizeof(intptr_t)),
-  _renew_size(_min_size * 2),
+  _min_size(max_frames * 2 * wordSize), // each frame tags at most 2 words, min size is a full stacktrace
   _cur_index(-1),
   _max_frames(max_frames),
   _disenrolled(true) {
@@ -552,13 +560,13 @@ void JfrThreadSampler::post_run() {
 }
 
 const JfrBuffer* JfrThreadSampler::get_enqueue_buffer() {
-  const JfrBuffer* buffer = JfrTraceIdLoadBarrier::get_enqueue_buffer(this);
-  return buffer != nullptr ? renew_if_full(buffer) : JfrTraceIdLoadBarrier::renew_enqueue_buffer(_renew_size, this);
+  const JfrBuffer* buffer = JfrTraceIdLoadBarrier::get_sampler_enqueue_buffer(this);
+  return buffer != nullptr ? renew_if_full(buffer) : JfrTraceIdLoadBarrier::renew_sampler_enqueue_buffer(this);
 }
 
 const JfrBuffer* JfrThreadSampler::renew_if_full(const JfrBuffer* enqueue_buffer) {
   assert(enqueue_buffer != nullptr, "invariant");
-  return enqueue_buffer->free_size() < _min_size ? JfrTraceIdLoadBarrier::renew_enqueue_buffer(_renew_size, this) : enqueue_buffer;
+  return enqueue_buffer->free_size() < _min_size ? JfrTraceIdLoadBarrier::renew_sampler_enqueue_buffer(this) : enqueue_buffer;
 }
 
 void JfrThreadSampler::task_stacktrace(JfrSampleType type, JavaThread** last_thread) {

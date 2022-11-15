@@ -87,7 +87,7 @@ Thread::Thread() {
   set_resource_area(new (mtThread)ResourceArea());
   DEBUG_ONLY(_current_resource_mark = NULL;)
   set_handle_area(new (mtThread) HandleArea(NULL));
-  set_metadata_handles(new (ResourceObj::C_HEAP, mtClass) GrowableArray<Metadata*>(30, mtClass));
+  set_metadata_handles(new (mtClass) GrowableArray<Metadata*>(30, mtClass));
   set_last_handle_mark(NULL);
   DEBUG_ONLY(_missed_ic_stub_refill_verifier = NULL);
 
@@ -551,7 +551,6 @@ bool Thread::set_as_starting_thread() {
   DEBUG_ONLY(_starting_thread = this;)
   return os::create_main_thread(JavaThread::cast(this));
 }
-
 
 // Ad-hoc mutual exclusion primitives: SpinLock
 //

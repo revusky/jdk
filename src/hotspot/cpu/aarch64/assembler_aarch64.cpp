@@ -137,7 +137,7 @@ void Address::lea(MacroAssembler *as, Register r) const {
       __ add(r, _base, _offset);
     else
       __ sub(r, _base, -_offset);
-      break;
+    break;
   }
   case base_plus_offset_reg: {
     __ add(r, _base, _index, _ext.op(), MAX2(_ext.shift(), 0));
@@ -153,10 +153,6 @@ void Address::lea(MacroAssembler *as, Register r) const {
   default:
     ShouldNotReachHere();
   }
-}
-
-void Assembler::adrp(Register reg1, const Address &dest, uint64_t &byte_offset) {
-  ShouldNotReachHere();
 }
 
 #undef __
@@ -189,7 +185,7 @@ void Assembler::adrp(Register reg1, const Address &dest, uint64_t &byte_offset) 
     offset >>= 2;
     starti;
     f(1, 31), f(offset_lo, 30, 29), f(0b10000, 28, 24), sf(offset, 23, 5);
-    rf(Rd, 0);
+    zrf(Rd, 0);
   }
 
 // An "all-purpose" add/subtract immediate, per ARM documentation:
@@ -242,7 +238,6 @@ void Assembler::add_sub_immediate(Instruction_aarch64 &current_insn,
 #undef starti
 
 Address::Address(address target, relocInfo::relocType rtype) : _mode(literal){
-  _is_lval = false;
   _target = target;
   switch (rtype) {
   case relocInfo::oop_type:

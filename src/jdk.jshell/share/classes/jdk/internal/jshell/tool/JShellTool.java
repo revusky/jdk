@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -341,16 +341,15 @@ public class JShellTool implements MessageHandler {
         // return a new Options, with parameter options overriding receiver options
         Options override(Options newer) {
             Options result = new Options(this);
-            newer.optMap.entrySet().stream()
-                    .forEach(e -> {
-                        if (e.getKey().onlyOne) {
-                            // Only one allowed, override last
-                            result.optMap.put(e.getKey(), e.getValue());
-                        } else {
-                            // Additive
-                            result.addAll(e.getKey(), e.getValue());
-                        }
-                    });
+            newer.optMap.forEach((key, value) -> {
+                if (key.onlyOne) {
+                    // Only one allowed, override last
+                    result.optMap.put(key, value);
+                } else {
+                    // Additive
+                    result.addAll(key, value);
+                }
+            });
             return result;
         }
     }
@@ -3078,7 +3077,8 @@ public class JShellTool implements MessageHandler {
                         path = toPathResolvingUserHome(filename);
                     } catch (InvalidPathException ipe) {
                         try {
-                            url = new URL(filename);
+                            @SuppressWarnings("deprecation")
+                            var _unused = url = new URL(filename);
                             if (url.getProtocol().equalsIgnoreCase("file")) {
                                 path = Paths.get(url.toURI());
                             }
@@ -3093,7 +3093,8 @@ public class JShellTool implements MessageHandler {
                     } else {
                         if (url == null) {
                             try {
-                                url = new URL(filename);
+                                @SuppressWarnings("deprecation")
+                                var _unused = url = new URL(filename);
                             } catch (MalformedURLException mue) {
                                 throw new FileNotFoundException(filename);
                             }
@@ -3543,8 +3544,7 @@ public class JShellTool implements MessageHandler {
             errormsg(d.isError() ? "jshell.msg.error" : "jshell.msg.warning");
             List<String> disp = new ArrayList<>();
             displayableDiagnostic(source, d, disp);
-            disp.stream()
-                    .forEach(l -> error("%s", l));
+            disp.forEach(l -> error("%s", l));
         }
     }
 
