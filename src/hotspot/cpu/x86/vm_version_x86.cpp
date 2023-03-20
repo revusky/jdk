@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,11 +23,12 @@
  */
 
 #include "precompiled.hpp"
-#include "jvm.h"
 #include "asm/macroAssembler.hpp"
 #include "asm/macroAssembler.inline.hpp"
+#include "classfile/vmIntrinsics.hpp"
 #include "code/codeBlob.hpp"
 #include "compiler/compilerDefinitions.inline.hpp"
+#include "jvm.h"
 #include "logging/log.hpp"
 #include "logging/logStream.hpp"
 #include "memory/resourceArea.hpp"
@@ -854,9 +855,6 @@ void VM_Version::get_processor_features() {
     _data_cache_line_flush_size = _cpuid_info.std_cpuid1_ebx.bits.clflush_size * 8;
   }
 #endif
-  // If the OS doesn't support SSE, we can't use this feature even if the HW does
-  if (!os::supports_sse())
-    _features &= ~(CPU_SSE|CPU_SSE2|CPU_SSE3|CPU_SSSE3|CPU_SSE4A|CPU_SSE4_1|CPU_SSE4_2);
 
   if (UseSSE < 4) {
     _features &= ~CPU_SSE4_1;
@@ -950,6 +948,7 @@ void VM_Version::get_processor_features() {
     _features &= ~CPU_AVX512_VBMI;
     _features &= ~CPU_AVX512_VBMI2;
     _features &= ~CPU_AVX512_BITALG;
+    _features &= ~CPU_AVX512_IFMA;
   }
 
   if (UseAVX < 2)
@@ -958,6 +957,7 @@ void VM_Version::get_processor_features() {
   if (UseAVX < 1) {
     _features &= ~CPU_AVX;
     _features &= ~CPU_VZEROUPPER;
+    _features &= ~CPU_F16C;
   }
 
   if (logical_processors_per_package() == 1) {
@@ -981,6 +981,7 @@ void VM_Version::get_processor_features() {
       _features &= ~CPU_FLUSHOPT;
       _features &= ~CPU_GFNI;
       _features &= ~CPU_AVX512_BITALG;
+      _features &= ~CPU_AVX512_IFMA;
     }
   }
 
@@ -990,7 +991,7 @@ void VM_Version::get_processor_features() {
     _has_intel_jcc_erratum = IntelJccErratumMitigation;
   }
 
-  char buf[512];
+  char buf[1024];
   int res = jio_snprintf(
               buf, sizeof(buf),
               "(%u cores per cpu, %u threads per core) family %d model %d stepping %d microcode 0x%x",
@@ -1123,8 +1124,24 @@ void VM_Version::get_processor_features() {
     FLAG_SET_DEFAULT(UseGHASHIntrinsics, false);
   }
 
+  // ChaCha20 Intrinsics
+  // As long as the system supports AVX as a baseline we can do a
+  // SIMD-enabled block function.  StubGenerator makes the determination
+  // based on the VM capabilities whether to use an AVX2 or AVX512-enabled
+  // version.
+  if (UseAVX >= 1) {
+      if (FLAG_IS_DEFAULT(UseChaCha20Intrinsics)) {
+          UseChaCha20Intrinsics = true;
+      }
+  } else if (UseChaCha20Intrinsics) {
+      if (!FLAG_IS_DEFAULT(UseChaCha20Intrinsics)) {
+          warning("ChaCha20 intrinsic requires AVX instructions");
+      }
+      FLAG_SET_DEFAULT(UseChaCha20Intrinsics, false);
+  }
+
   // Base64 Intrinsics (Check the condition for which the intrinsic will be active)
-  if ((UseAVX > 2) && supports_avx512vl() && supports_avx512bw()) {
+  if (UseAVX >= 2) {
     if (FLAG_IS_DEFAULT(UseBASE64Intrinsics)) {
       UseBASE64Intrinsics = true;
     }
@@ -1332,6 +1349,18 @@ void VM_Version::get_processor_features() {
     }
   }
 #endif // COMPILER2 && ASSERT
+
+#ifdef _LP64
+  if (supports_avx512ifma() && supports_avx512vlbw() && MaxVectorSize >= 64) {
+    if (FLAG_IS_DEFAULT(UsePoly1305Intrinsics)) {
+      FLAG_SET_DEFAULT(UsePoly1305Intrinsics, true);
+    }
+  } else
+#endif
+  if (UsePoly1305Intrinsics) {
+    warning("Intrinsics for Poly1305 crypto hash functions not available on this CPU.");
+    FLAG_SET_DEFAULT(UsePoly1305Intrinsics, false);
+  }
 
 #ifdef _LP64
   if (FLAG_IS_DEFAULT(UseMultiplyToLenIntrinsic)) {
@@ -1667,12 +1696,25 @@ void VM_Version::get_processor_features() {
       warning("vectorizedMismatch intrinsics are not available on this CPU");
     FLAG_SET_DEFAULT(UseVectorizedMismatchIntrinsic, false);
   }
+  if (UseAVX >= 2) {
+    FLAG_SET_DEFAULT(UseVectorizedHashCodeIntrinsic, true);
+  } else if (UseVectorizedHashCodeIntrinsic) {
+    if (!FLAG_IS_DEFAULT(UseVectorizedHashCodeIntrinsic))
+      warning("vectorizedHashCode intrinsics are not available on this CPU");
+    FLAG_SET_DEFAULT(UseVectorizedHashCodeIntrinsic, false);
+  }
 #else
   if (UseVectorizedMismatchIntrinsic) {
     if (!FLAG_IS_DEFAULT(UseVectorizedMismatchIntrinsic)) {
       warning("vectorizedMismatch intrinsic is not available in 32-bit VM");
     }
     FLAG_SET_DEFAULT(UseVectorizedMismatchIntrinsic, false);
+  }
+  if (UseVectorizedHashCodeIntrinsic) {
+    if (!FLAG_IS_DEFAULT(UseVectorizedHashCodeIntrinsic)) {
+      warning("vectorizedHashCode intrinsic is not available in 32-bit VM");
+    }
+    FLAG_SET_DEFAULT(UseVectorizedHashCodeIntrinsic, false);
   }
 #endif // _LP64
 
@@ -2897,6 +2939,8 @@ uint64_t VM_Version::feature_flags() {
         result |= CPU_AVX512CD;
       if (_cpuid_info.sef_cpuid7_ebx.bits.avx512dq != 0)
         result |= CPU_AVX512DQ;
+      if (_cpuid_info.sef_cpuid7_ebx.bits.avx512ifma != 0)
+        result |= CPU_AVX512_IFMA;
       if (_cpuid_info.sef_cpuid7_ebx.bits.avx512pf != 0)
         result |= CPU_AVX512PF;
       if (_cpuid_info.sef_cpuid7_ebx.bits.avx512er != 0)
@@ -3177,3 +3221,19 @@ intx VM_Version::allocate_prefetch_distance(bool use_watermark_prefetch) {
     }
   }
 }
+
+bool VM_Version::is_intrinsic_supported(vmIntrinsicID id) {
+  assert(id != vmIntrinsics::_none, "must be a VM intrinsic");
+  switch (id) {
+  case vmIntrinsics::_floatToFloat16:
+  case vmIntrinsics::_float16ToFloat:
+    if (!supports_float16()) {
+      return false;
+    }
+    break;
+  default:
+    break;
+  }
+  return true;
+}
+

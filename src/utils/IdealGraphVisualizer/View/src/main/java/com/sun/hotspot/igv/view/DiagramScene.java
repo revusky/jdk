@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -187,36 +187,40 @@ public class DiagramScene extends ObjectScene implements DiagramViewer, DoubleCl
 
         @Override
         public void filteredChanged(SelectionCoordinator coordinator) {
-            Set<Integer> ids = coordinator.getHighlightedObjects();
-            Set<Object> result = new HashSet<>();
-            for (Figure figure : getModel().getDiagram().getFigures()) {
-                if (ids.contains(figure.getInputNode().getId())) {
-                    result.add(figure);
-                }
-                for (Slot slot : figure.getSlots()) {
-                    if (!Collections.disjoint(slot.getSource().getSourceNodesAsSet(), ids)) {
-                        result.add(slot);
+            if (model.getGlobalSelection()) {
+                Set<Integer> ids = coordinator.getHighlightedObjects();
+                Set<Object> highlightedObjects = new HashSet<>();
+                for (Figure figure : getModel().getDiagram().getFigures()) {
+                    if (ids.contains(figure.getInputNode().getId())) {
+                        highlightedObjects.add(figure);
+                    }
+                    for (Slot slot : figure.getSlots()) {
+                        if (!Collections.disjoint(slot.getSource().getSourceNodesAsSet(), ids)) {
+                            highlightedObjects.add(slot);
+                        }
                     }
                 }
+                setHighlightedObjects(highlightedObjects);
+                validateAll();
             }
-            setHighlightedObjects(result);
-            validateAll();
         }
     };
     private final ControllableChangedListener<SelectionCoordinator> selectedCoordinatorListener = new ControllableChangedListener<SelectionCoordinator>() {
 
         @Override
         public void filteredChanged(SelectionCoordinator coordinator) {
-            Set<Integer> ids = coordinator.getSelectedObjects();
-            Set<Figure> figures = new HashSet<>();
-            for (Figure figure : getModel().getDiagram().getFigures()) {
-                if (ids.contains(figure.getInputNode().getId())) {
-                    figures.add(figure);
+            if (model.getGlobalSelection()) {
+                Set<Integer> ids = coordinator.getSelectedObjects();
+                Set<Figure> selectedFigures = new HashSet<>();
+                for (Figure figure : getModel().getDiagram().getFigures()) {
+                    if (ids.contains(figure.getInputNode().getId())) {
+                        selectedFigures.add(figure);
+                    }
                 }
+                setFigureSelection(selectedFigures);
+                centerSelectedFigures();
+                validateAll();
             }
-            setFigureSelection(figures);
-            centerSelectedFigures();
-            validateAll();
         }
     };
 
@@ -946,12 +950,16 @@ public class DiagramScene extends ObjectScene implements DiagramViewer, DoubleCl
         super.setSelectedObjects(new HashSet<>(list));
     }
 
+    @Override
+    public void resetUndoRedoManager() {
+        undoRedoManager = new UndoRedo.Manager();
+        undoRedoManager.setLimit(UNDOREDO_LIMIT);
+    }
+
     private UndoRedo.Manager getUndoRedoManager() {
         if (undoRedoManager == null) {
-            undoRedoManager = new UndoRedo.Manager();
-            undoRedoManager.setLimit(UNDOREDO_LIMIT);
+            resetUndoRedoManager();
         }
-
         return undoRedoManager;
     }
 
