@@ -578,7 +578,6 @@ void Compile::print_ideal_ir(const char* phase_name) {
 
 // ============================================================================
 //------------------------------Compile standard-------------------------------
-debug_only( int Compile::_debug_idx = 100000; )
 
 // Compile a method.  entry_bci is -1 for normal compilations and indicates
 // the continuation bci for on stack replacement.
@@ -753,7 +752,11 @@ Compile::Compile( ciEnv* ci_env, ciMethod* target, int osr_bci,
     }
     if (failing())  return;
     if (cg == nullptr) {
-      record_method_not_compilable("cannot parse method");
+      const char* reason = InlineTree::check_can_parse(method());
+      assert(reason != nullptr, "expect reason for parse failure");
+      stringStream ss;
+      ss.print("cannot parse method: %s", reason);
+      record_method_not_compilable(ss.as_string());
       return;
     }
 
@@ -762,7 +765,10 @@ Compile::Compile( ciEnv* ci_env, ciMethod* target, int osr_bci,
     JVMState* jvms = build_start_state(start(), tf());
     if ((jvms = cg->generate(jvms)) == nullptr) {
       if (!failure_reason_is(C2Compiler::retry_class_loading_during_parsing())) {
-        record_method_not_compilable("method parse failed");
+        assert(failure_reason() != nullptr, "expect reason for parse failure");
+        stringStream ss;
+        ss.print("method parse failed: %s", failure_reason());
+        record_method_not_compilable(ss.as_string());
       }
       return;
     }
@@ -3922,6 +3928,8 @@ bool Compile::final_graph_reshaping() {
   // an infinite loop may have been eliminated by the optimizer,
   // in which case the graph will be empty.
   if (root()->req() == 1) {
+    // Do not compile method that is only a trivial infinite loop,
+    // since the content of the loop may have been eliminated.
     record_method_not_compilable("trivial infinite loop");
     return true;
   }
@@ -3987,8 +3995,11 @@ bool Compile::final_graph_reshaping() {
           }
         }
       }
+
       // Recheck with a better notion of 'required_outcnt'
       if (n->outcnt() != required_outcnt) {
+        DEBUG_ONLY( n->dump_bfs(1, 0, "-"); );
+        assert(false, "malformed control flow");
         record_method_not_compilable("malformed control flow");
         return true;            // Not all targets reachable!
       }

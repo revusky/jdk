@@ -323,7 +323,8 @@ void CodeSection::relocate(address at, RelocationHolder const& spec, int format)
            rtype == relocInfo::runtime_call_type ||
            rtype == relocInfo::internal_word_type||
            rtype == relocInfo::section_word_type ||
-           rtype == relocInfo::external_word_type,
+           rtype == relocInfo::external_word_type||
+           rtype == relocInfo::barrier_type,
            "code needs relocation information");
     // leave behind an indication that we attempted a relocation
     DEBUG_ONLY(_locs_start = _locs_limit = (relocInfo*)badAddress);
@@ -1009,11 +1010,13 @@ void CodeBuffer::log_section_sizes(const char* name) {
   }
 }
 
-void CodeBuffer::finalize_stubs() {
-  if (!pd_finalize_stubs()) {
-    return;
+bool CodeBuffer::finalize_stubs() {
+  if (_finalize_stubs && !pd_finalize_stubs()) {
+    // stub allocation failure
+    return false;
   }
   _finalize_stubs = false;
+  return true;
 }
 
 void CodeBuffer::shared_stub_to_interp_for(ciMethod* callee, csize_t call_offset) {
