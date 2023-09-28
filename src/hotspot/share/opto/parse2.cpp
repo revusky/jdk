@@ -46,8 +46,8 @@
 #include "runtime/sharedRuntime.hpp"
 
 #ifndef PRODUCT
-extern int explicit_null_checks_inserted,
-           explicit_null_checks_elided;
+extern uint explicit_null_checks_inserted,
+            explicit_null_checks_elided;
 #endif
 
 //---------------------------------array_load----------------------------------
@@ -1580,7 +1580,7 @@ void Parse::maybe_add_predicate_after_if(Block* path) {
     // Add predicates at bci of if dominating the loop so traps can be
     // recorded on the if's profile data
     int bc_depth = repush_if_args();
-    add_empty_predicates();
+    add_parse_predicates();
     dec_sp(bc_depth);
     path->set_has_predicates();
   }
@@ -2779,13 +2779,14 @@ void Parse::do_one_bytecode() {
   }
 
 #ifndef PRODUCT
-  if (C->should_print_igv(1)) {
+  constexpr int perBytecode = 5;
+  if (C->should_print_igv(perBytecode)) {
     IdealGraphPrinter* printer = C->igv_printer();
     char buffer[256];
     jio_snprintf(buffer, sizeof(buffer), "Bytecode %d: %s", bci(), Bytecodes::name(bc()));
     bool old = printer->traverse_outs();
     printer->set_traverse_outs(true);
-    printer->print_method(buffer, 4);
+    printer->print_method(buffer, perBytecode);
     printer->set_traverse_outs(old);
   }
 #endif
