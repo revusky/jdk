@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -121,7 +121,6 @@ ciEnv::ciEnv(CompileTask* task)
   _oop_recorder = nullptr;
   _debug_info = nullptr;
   _dependencies = nullptr;
-  _failure_reason = nullptr;
   _inc_decompile_count_on_failure = true;
   _compilable = MethodCompilable;
   _break_at_compile = false;
@@ -250,7 +249,6 @@ ciEnv::ciEnv(Arena* arena) : _ciEnv_arena(mtCompiler) {
   _oop_recorder = nullptr;
   _debug_info = nullptr;
   _dependencies = nullptr;
-  _failure_reason = nullptr;
   _inc_decompile_count_on_failure = true;
   _compilable = MethodCompilable_never;
   _break_at_compile = false;
@@ -871,10 +869,8 @@ ciMethod* ciEnv::get_method_by_index_impl(const constantPoolHandle& cpool,
     // Jump through a patchable call site, which is initially a deopt routine.
     // Patch the call site to the nmethod entry point of the static compiled lambda form.
     // As with other two-component call sites, both values must be independently verified.
-    int indy_index = cpool->decode_invokedynamic_index(index);
-    assert (indy_index >= 0, "should be");
-    assert(indy_index < cpool->cache()->resolved_indy_entries_length(), "impossible");
-    Method* adapter = cpool->resolved_indy_entry_at(indy_index)->method();
+    assert(index < cpool->cache()->resolved_indy_entries_length(), "impossible");
+    Method* adapter = cpool->resolved_indy_entry_at(index)->method();
     // Resolved if the adapter is non null.
     if (adapter != nullptr) {
       return get_method(adapter);
@@ -1036,8 +1032,7 @@ void ciEnv::register_method(ciMethod* target,
                             bool has_unsafe_access,
                             bool has_wide_vectors,
                             bool has_monitors,
-                            int immediate_oops_patched,
-                            RTMState  rtm_state) {
+                            int immediate_oops_patched) {
   VM_ENTRY_MARK;
   nmethod* nm = nullptr;
   {
@@ -1094,14 +1089,6 @@ void ciEnv::register_method(ciMethod* target,
       // Check for {class loads, evolution, breakpoints, ...} during compilation
       validate_compile_task_dependencies(target);
     }
-#if INCLUDE_RTM_OPT
-    if (!failing() && (rtm_state != NoRTM) &&
-        (method()->method_data() != nullptr) &&
-        (method()->method_data()->rtm_state() != rtm_state)) {
-      // Preemptive decompile if rtm state was changed.
-      record_failure("RTM state change invalidated rtm code");
-    }
-#endif
 
     if (failing()) {
       // While not a true deoptimization, it is a preemptive decompile.
@@ -1138,14 +1125,11 @@ void ciEnv::register_method(ciMethod* target,
       nm->set_has_wide_vectors(has_wide_vectors);
       nm->set_has_monitors(has_monitors);
       assert(!method->is_synchronized() || nm->has_monitors(), "");
-#if INCLUDE_RTM_OPT
-      nm->set_rtm_state(rtm_state);
-#endif
 
       if (entry_bci == InvocationEntryBci) {
         if (TieredCompilation) {
           // If there is an old version we're done with it
-          CompiledMethod* old = method->code();
+          nmethod* old = method->code();
           if (TraceMethodReplacement && old != nullptr) {
             ResourceMark rm;
             char *method_name = method->name_and_sig_as_C_string();
@@ -1164,7 +1148,7 @@ void ciEnv::register_method(ciMethod* target,
                     task()->comp_level(), method_name);
         }
         // Allow the code to be executed
-        MutexLocker ml(CompiledMethod_lock, Mutex::_no_safepoint_check_flag);
+        MutexLocker ml(NMethodState_lock, Mutex::_no_safepoint_check_flag);
         if (nm->make_in_use()) {
           method->set_code(method, nm);
         }
@@ -1176,7 +1160,7 @@ void ciEnv::register_method(ciMethod* target,
           lt.print("Installing osr method (%d) %s @ %d",
                     task()->comp_level(), method_name, entry_bci);
         }
-        MutexLocker ml(CompiledMethod_lock, Mutex::_no_safepoint_check_flag);
+        MutexLocker ml(NMethodState_lock, Mutex::_no_safepoint_check_flag);
         if (nm->make_in_use()) {
           method->method_holder()->add_osr_nmethod(nm);
         }
@@ -1233,9 +1217,9 @@ int ciEnv::num_inlined_bytecodes() const {
 // ------------------------------------------------------------------
 // ciEnv::record_failure()
 void ciEnv::record_failure(const char* reason) {
-  if (_failure_reason == nullptr) {
+  if (_failure_reason.get() == nullptr) {
     // Record the first failure reason.
-    _failure_reason = reason;
+    _failure_reason.set(reason);
   }
 }
 
@@ -1265,7 +1249,7 @@ void ciEnv::record_method_not_compilable(const char* reason, bool all_tiers) {
     _compilable = new_compilable;
 
     // Reset failure reason; this one is more important.
-    _failure_reason = nullptr;
+    _failure_reason.clear();
     record_failure(reason);
   }
 }
@@ -1503,21 +1487,20 @@ void ciEnv::record_call_site_method(Thread* thread, Method* adapter) {
 
 // Process an invokedynamic call site and record any dynamic locations.
 void ciEnv::process_invokedynamic(const constantPoolHandle &cp, int indy_index, JavaThread* thread) {
-  int index = cp->decode_invokedynamic_index(indy_index);
-  ResolvedIndyEntry* indy_info = cp->resolved_indy_entry_at(index);
+  ResolvedIndyEntry* indy_info = cp->resolved_indy_entry_at(indy_index);
   if (indy_info->method() != nullptr) {
     // process the adapter
     Method* adapter = indy_info->method();
     record_call_site_method(thread, adapter);
     // process the appendix
-    oop appendix = cp->resolved_reference_from_indy(index);
+    oop appendix = cp->resolved_reference_from_indy(indy_index);
     {
       RecordLocation fp(this, "<appendix>");
       record_call_site_obj(thread, appendix);
     }
     // process the BSM
     int pool_index = indy_info->constant_pool_index();
-    BootstrapInfo bootstrap_specifier(cp, pool_index, index);
+    BootstrapInfo bootstrap_specifier(cp, pool_index, indy_index);
     oop bsm = cp->resolve_possibly_cached_constant_at(bootstrap_specifier.bsm_index(), thread);
     {
       RecordLocation fp(this, "<bsm>");
@@ -1535,11 +1518,11 @@ void ciEnv::process_invokehandle(const constantPoolHandle &cp, int index, JavaTh
   Klass* holder = ConstantPool::klass_at_if_loaded(cp, holder_index);
   Symbol* name = cp->name_ref_at(index, Bytecodes::_invokehandle);
   if (MethodHandles::is_signature_polymorphic_name(holder, name)) {
-    ConstantPoolCacheEntry* cp_cache_entry = cp->cache()->entry_at(cp->decode_cpcache_index(index));
-    if (cp_cache_entry->is_resolved(Bytecodes::_invokehandle)) {
+    ResolvedMethodEntry* method_entry = cp->resolved_method_entry_at(index);
+    if (method_entry->is_resolved(Bytecodes::_invokehandle)) {
       // process the adapter
-      Method* adapter = cp_cache_entry->f1_as_method();
-      oop appendix = cp_cache_entry->appendix_if_resolved(cp);
+      Method* adapter = method_entry->method();
+      oop appendix = cp->cache()->appendix_if_resolved(method_entry);
       record_call_site_method(thread, adapter);
       // process the appendix
       {
@@ -1591,7 +1574,7 @@ void ciEnv::find_dynamic_call_sites() {
               process_invokedynamic(pool, index, thread);
             } else {
               assert(opcode == Bytecodes::_invokehandle, "new switch label added?");
-              int cp_cache_index = bcs.get_index_u2_cpcache();
+              int cp_cache_index = bcs.get_index_u2();
               process_invokehandle(pool, cp_cache_index, thread);
             }
             break;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -66,8 +66,7 @@ public:
     tiny_size  =  256  - slack, // Size of first chunk (tiny)
     init_size  =  1*K  - slack, // Size of first chunk (normal aka small)
     medium_size= 10*K  - slack, // Size of medium-sized chunk
-    size       = 32*K  - slack, // Default size of an Arena chunk (following the first)
-    non_pool_size = init_size + 32 // An initial size which is not one of above
+    size       = 32*K  - slack  // Default size of an Arena chunk (following the first)
   };
 
   static void chop(Chunk* chunk);                  // Chop this chunk
@@ -86,13 +85,23 @@ public:
 
 // Fast allocation of memory
 class Arena : public CHeapObjBase {
+public:
+
+  enum class Tag : uint8_t {
+    tag_other = 0,
+    tag_ra,   // resource area
+    tag_ha,   // handle area
+    tag_node  // C2 Node arena
+  };
+
 protected:
   friend class HandleMark;
   friend class NoHandleMark;
   friend class VMStructs;
 
   MEMFLAGS    _flags;           // Memory tracking flags
-
+  const Tag _tag;
+  uint32_t _init_size;
   Chunk* _first;                // First chunk
   Chunk* _chunk;                // current chunk
   char* _hwm;                   // High water mark
@@ -115,9 +124,8 @@ protected:
  public:
   // Start the chunk_pool cleaner task
   static void start_chunk_pool_cleaner_task();
-
-  Arena(MEMFLAGS memflag);
-  Arena(MEMFLAGS memflag, size_t init_size);
+  Arena(MEMFLAGS memflag, Tag tag = Tag::tag_other);
+  Arena(MEMFLAGS memflag, Tag tag, size_t init_size);
   ~Arena();
   void  destruct_contents();
   char* hwm() const             { return _hwm; }
@@ -170,6 +178,8 @@ protected:
   // Total # of bytes used
   size_t size_in_bytes() const         {  return _size_in_bytes; };
   void set_size_in_bytes(size_t size);
+
+  Tag get_tag() const { return _tag; }
 
 private:
   // Reset this Arena to empty, access will trigger grow if necessary
