@@ -25,6 +25,7 @@
 /*
  * @test
  * @summary Vectorization test on basic boolean operations
+ * @requires vm.opt.StressUnstableIfTraps == null | !vm.opt.StressUnstableIfTraps
  * @library /test/lib /
  *
  * @build jdk.test.whitebox.WhiteBox
@@ -72,7 +73,7 @@ public class BasicBooleanOpTest extends VectorizationTestRunner {
     }
 
     @Test
-    @IR(applyIfCPUFeatureOr = {"asimd", "true", "sse2", "true"},
+    @IR(applyIfCPUFeatureOr = {"asimd", "true", "sse2", "true", "rvv", "true"},
         phase = CompilePhase.BEFORE_MACRO_EXPANSION,
         counts = {IRNode.AND_VB, ">0"})
     public boolean[] vectorAnd() {
@@ -84,7 +85,7 @@ public class BasicBooleanOpTest extends VectorizationTestRunner {
     }
 
     @Test
-    @IR(applyIfCPUFeatureOr = {"asimd", "true", "sse2", "true"},
+    @IR(applyIfCPUFeatureOr = {"asimd", "true", "sse2", "true", "rvv", "true"},
         counts = {IRNode.OR_VB, ">0"})
     public boolean[] vectorOr() {
         boolean[] res = new boolean[SIZE];
@@ -95,7 +96,7 @@ public class BasicBooleanOpTest extends VectorizationTestRunner {
     }
 
     @Test
-    @IR(applyIfCPUFeatureOr = {"asimd", "true", "sse2", "true"},
+    @IR(applyIfCPUFeatureOr = {"asimd", "true", "sse2", "true", "rvv", "true"},
         counts = {IRNode.XOR_VB, ">0"})
     public boolean[] vectorXor() {
         boolean[] res = new boolean[SIZE];

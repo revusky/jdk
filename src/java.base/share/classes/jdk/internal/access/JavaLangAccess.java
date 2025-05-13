@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,7 +38,6 @@ import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
-import java.security.AccessControlContext;
 import java.security.ProtectionDomain;
 import java.util.List;
 import java.util.Map;
@@ -121,6 +120,12 @@ public interface JavaLangAccess {
     <E extends Enum<E>> E[] getEnumConstantsShared(Class<E> klass);
 
     /**
+     * Returns the big-endian packed minor-major version of the class file
+     * of this class.
+     */
+    int classFileVersion(Class<?> clazz);
+
+    /**
      * Set current thread's blocker field.
      */
     void blockedOn(Interruptible b);
@@ -143,12 +148,6 @@ public interface JavaLangAccess {
      *         the slot is not valid to register.
      */
     void registerShutdownHook(int slot, boolean registerShutdownInProgress, Runnable hook);
-
-    /**
-     * Returns a new Thread with the given Runnable and an
-     * inherited AccessControlContext.
-     */
-    Thread newThreadWithAcc(Runnable target, @SuppressWarnings("removal") AccessControlContext acc);
 
     /**
      * Invokes the finalize method of the given object.
@@ -183,16 +182,6 @@ public interface JavaLangAccess {
      * Define a Package of the given name and module by the given class loader.
      */
     Package definePackage(ClassLoader cl, String name, Module module);
-
-    /**
-     * Record the non-exported packages of the modules in the given layer
-     */
-    void addNonExportedPackages(ModuleLayer layer);
-
-    /**
-     * Invalidate package access cache
-     */
-    void invalidatePackageAccessCache();
 
     /**
      * Defines a new module to the Java virtual machine. The module
@@ -246,11 +235,6 @@ public interface JavaLangAccess {
      * Updates module m to open a package to all unnamed modules.
      */
     void addOpensToAllUnnamed(Module m, String pkg);
-
-    /**
-     * Updates module m to open all packages in the given sets.
-     */
-    void addOpensToAllUnnamed(Module m, Set<String> concealedPkgs, Set<String> exportedPkgs);
 
     /**
      * Updates module m to use a service.
@@ -487,21 +471,11 @@ public interface JavaLangAccess {
      */
     Object classData(Class<?> c);
 
-    int getCharsLatin1(long i, int index, byte[] buf);
-
-    int getCharsUTF16(long i, int index, byte[] buf);
-
     /**
      * Returns the {@link NativeLibraries} object associated with the provided class loader.
      * This is used by {@link SymbolLookup#loaderLookup()}.
      */
     NativeLibraries nativeLibrariesFor(ClassLoader loader);
-
-    /**
-     * Direct access to Shutdown.exit to avoid security manager checks
-     * @param statusCode the status code
-     */
-    void exit(int statusCode);
 
     /**
      * Returns an array of all platform threads.
@@ -633,10 +607,4 @@ public interface JavaLangAccess {
      * Are the string bytes compatible with the given charset?
      */
     boolean bytesCompatible(String string, Charset charset);
-
-    /**
-     * Is a security manager already set or allowed to be set
-     * (using -Djava.security.manager=allow)?
-     */
-    boolean allowSecurityManager();
 }
